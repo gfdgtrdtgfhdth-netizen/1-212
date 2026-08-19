@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const puppeteer = require('puppeteer');
 
-const TOKEN = process.env.DISCORD_TOKEN || ;
+const TOKEN = process.env.DISCORD_TOKEN || '';
 const GUILD_ID = process.env.GUILD_ID || '1343934186448359436';
 const CHANNEL_ID = process.env.CHANNEL_ID || '1343934187219976256';
 const PORT = parseInt(process.env.PORT || '8081', 10);
@@ -14,6 +14,11 @@ let page = null;
 function log(msg) {
   console.log(`[${new Date().toISOString()}] [RAILWAY-VIEWER] ${msg}`);
 }
+
+// Route Healthcheck bắt buộc cho railway.json
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', browserActive: !!browser });
+});
 
 app.get('/', (req, res) => {
   res.send(`
@@ -44,14 +49,13 @@ app.get('/start', async (req, res) => {
   try {
     log('Đang khởi chạy Chromium trên Railway Container...');
     
-    // Sử dụng đường dẫn Chromium cài từ Dockerfile
     browser = await puppeteer.launch({
       headless: "new",
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage', // Tránh tràn bộ nhớ SHARED MEMORY trên Railway
+        '--disable-dev-shm-usage',
         '--disable-gpu',
         '--autoplay-policy=no-user-gesture-required',
         '--disable-background-timer-throttling'
@@ -75,7 +79,6 @@ app.get('/start', async (req, res) => {
     await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
     await page.goto(`https://discord.com/channels/${GUILD_ID}/${CHANNEL_ID}`, { waitUntil: 'networkidle2' });
 
-    // Giữ nhịp tương tác chuột giả để không bị ngắt luồng
     setInterval(async () => {
       if (page) {
         await page.mouse.move(Math.floor(Math.random() * 200), Math.floor(Math.random() * 200));
