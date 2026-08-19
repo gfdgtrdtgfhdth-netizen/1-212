@@ -15,98 +15,114 @@ function log(msg) {
   console.log(`[${new Date().toISOString()}] [RAILWAY-VIEWER] ${msg}`);
 }
 
-// Route Healthcheck bắt buộc cho railway.json
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', browserActive: !!browser });
+  res.status(200).json({ status: 'ok', active: !!browser });
 });
 
-app.get('/', (req, res) => {
+// Trang chủ hiển thị trạng thái và nút mở/tắt phiên làm việc
+app.get('/', async (req, res) => {
+  let statusText = browser ? "Trình duyệt đang CHẠY ngầm trên Server" : "Trình duyệt đang TẮT";
   res.send(`
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Railway Discord Viewer</title>
+      <title>Discord Web Viewer Control</title>
       <style>
-        body { font-family: sans-serif; background: #0f172a; color: #fff; text-align: center; padding-top: 50px; }
-        button { padding: 14px 28px; font-size: 16px; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; margin: 10px; }
-        .btn-start { background: #22c55e; color: white; }
-        .btn-stop { background: #ef4444; color: white; }
+        body { font-family: sans-serif; background: #1e1f22; color: #dbdee1; text-align: center; padding-top: 50px; }
+        .box { background: #2b2d31; display: inline-block; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        button { padding: 12px 24px; font-size: 15px; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; margin: 10px; }
+        .btn-open { background: #5865f2; color: white; }
+        .btn-close { background: #da373c; color: white; }
+        .status { font-weight: bold; color: ${browser ? '#23a55a' : '#f23f43'}; }
       </style>
     </head>
     <body>
-      <h1>BẢNG ĐIỀU KHIỂN BOT MẮT XEM (RAILWAY)</h1>
-      <p>Kênh Voice Target: <b>${CHANNEL_ID}</b></p>
-      <button class="btn-start" onclick="fetch('/start').then(r=>r.text()).then(alert)">BẮT ĐẦU TĂNG VIEWER</button>
-      <button class="btn-stop" onclick="fetch('/stop').then(r=>r.text()).then(alert)">TẮT VIEWER</button>
+      <div class="box">
+        <h2>ĐIỀU KHIỂN DISCORD WEB VIEWER</h2>
+        <p>Trạng thái: <span class="status">${statusText}</span></p>
+        <p>Server đang giữ tài khoản Token đăng nhập sẵn.</p>
+        <br>
+        <button class="btn-open" onclick="window.location.href='/launch'">1. KHỞI CHẠY & ĐĂNG NHẬP SẴN</button>
+        <button class="btn-close" onclick="window.location.href='/stop'">2. ĐÓNG TRÌNH DUYỆT (GIỮ MẮT XEM)</button>
+        <br><br>
+        <a href="https://discord.com/channels/${GUILD_ID}/${CHANNEL_ID}" target="_blank" style="color: #00a8fc;">Mở trực tiếp link Kênh Discord</a>
+      </div>
     </body>
     </html>
   `);
 });
 
-app.get('/start', async (req, res) => {
-  if (browser) return res.send('Bot đang chạy sẵn trên Railway!');
+// Khởi chạy trình duyệt, nạp sẵn Token và trỏ thẳng vào Server/Kênh Voice
+app.get('/launch', async (req, res) => {
+  if (!browser) {
+    try {
+      log('Đang khởi chạy Chromium trên Railway...');
+      browser = await puppeteer.launch({
+        headless: "new",
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--autoplay-policy=no-user-gesture-required',
+          '--disable-background-timer-throttling'
+        ]
+      });
 
-  try {
-    log('Đang khởi chạy Chromium trên Railway Container...');
-    
-    browser = await puppeteer.launch({
-      headless: "new",
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--autoplay-policy=no-user-gesture-required',
-        '--disable-background-timer-throttling'
-      ]
-    });
+      page = await browser.newPage();
+      await page.setViewport({ width: 1280, height: 720 });
 
-    page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 720 });
+      log('Đang nạp Token vào phiên làm việc...');
+      await page.goto('https://discord.com/login', { waitUntil: 'domcontentloaded' });
 
-    log('Đang tự động đăng nhập Token...');
-    await page.goto('https://discord.com/login', { waitUntil: 'domcontentloaded' });
+      // Inject Token tự động đăng nhập
+      await page.evaluate((token) => {
+        setInterval(() => {
+          document.body.appendChild(document.createElement('iframe')).contentWindow.localStorage.token = `"${token}"`;
+        }, 50);
+        setTimeout(() => { location.reload(); }, 2000);
+      }, TOKEN);
 
-    await page.evaluate((token) => {
-      setInterval(() => {
-        document.body.appendChild(document.createElement('iframe')).contentWindow.localStorage.token = `"${token}"`;
-      }, 50);
-      setTimeout(() => { location.reload(); }, 2000);
-    }, TOKEN);
+      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
+      
+      // Chuyển thẳng đến Kênh Voice của bạn
+      log('Đang mở Kênh Voice...');
+      await page.goto(`https://discord.com/channels/${GUILD_ID}/${CHANNEL_ID}`, { waitUntil: 'networkidle2' });
 
-    log('Đang kết nối vào Kênh Voice trên Server Discord...');
-    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
-    await page.goto(`https://discord.com/channels/${GUILD_ID}/${CHANNEL_ID}`, { waitUntil: 'networkidle2' });
-
-    setInterval(async () => {
-      if (page) {
-        await page.mouse.move(Math.floor(Math.random() * 200), Math.floor(Math.random() * 200));
-      }
-    }, 10000);
-
-    log('>>> ĐÃ KÍCH HOẠT MẮT XEM THÀNH CÔNG TRÊN RAILWAY <<<');
-    res.send('Tăng mắt xem thành công trên Railway!');
-
-  } catch (err) {
-    log(`Lỗi: ${err.message}`);
-    if (browser) await browser.close();
-    browser = null;
-    res.send(`Lỗi: ${err.message}`);
+      log('>>> ĐÃ KHỞI CHẠY VÀ ĐĂNG NHẬP THÀNH CÔNG TRÊN SERVER <<<');
+    } catch (err) {
+      log(`Lỗi: ${err.message}`);
+      if (browser) await browser.close();
+      browser = null;
+      return res.send(`Lỗi: ${err.message}`);
+    }
   }
+
+  res.send(`
+    <script>
+      alert('Đã khởi chạy phiên làm việc thành công! Bot đã vào sẵn kênh.');
+      window.location.href = '/';
+    </script>
+  `);
 });
 
+// Đóng trình duyệt nhưng container ngầm vẫn giữ trạng thái
 app.get('/stop', async (req, res) => {
   if (browser) {
     await browser.close();
     browser = null;
     page = null;
-    log('Đã dừng kết nối Viewer.');
-    return res.send('Đã tắt mắt xem.');
+    log('Đã đóng trình duyệt điều khiển.');
   }
-  res.send('Bot hiện không chạy.');
+  res.send(`
+    <script>
+      alert('Đã đóng trình duyệt. Mắt xem vẫn được giữ!');
+      window.location.href = '/';
+    </script>
+  `);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  log(`Server Railway đang chạy tại Cổng ${PORT}`);
+  log(`Server đang chạy tại cổng ${PORT}`);
 });
