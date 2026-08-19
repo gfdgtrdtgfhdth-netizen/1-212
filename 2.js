@@ -1,32 +1,37 @@
 require('dotenv').config();
-const express = require('express');
 const puppeteer = require('puppeteer');
 
-const TOKEN = process.env.DISCORD_TOKEN || '';
-const GUILD_ID = process.env.GUILD_ID || '1343934186448359436';
-const CHANNEL_ID = process.env.CHANNEL_ID || '1343934187219976256';
+// Lấy thông tin hoàn toàn từ biến môi trường (File .env hoặc Railway Variables)
+const TOKEN = process.env.DISCORD_TOKEN;
+const GUILD_ID = process.env.GUILD_ID;
+const CHANNEL_ID = process.env.CHANNEL_ID;
 const PORT = parseInt(process.env.PORT || '8081', 10);
 
+if (!TOKEN || !GUILD_ID || !CHANNEL_ID) {
+  console.error('[LỖI] Vui lòng cấu hình đầy đủ DISCORD_TOKEN, GUILD_ID và CHANNEL_ID trong biến môi trường!');
+  process.exit(1);
+}
+
+const express = require('express');
 const app = express();
 let browser = null;
 let page = null;
 
 function log(msg) {
-  console.log(`[${new Date().toISOString()}] [RAILWAY-VIEWER] ${msg}`);
+  console.log(`[${new Date().toISOString()}] [VIEWER-BOT] ${msg}`);
 }
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', active: !!browser });
 });
 
-// Trang chủ hiển thị trạng thái và nút mở/tắt phiên làm việc
 app.get('/', async (req, res) => {
-  let statusText = browser ? "Trình duyệt đang CHẠY ngầm trên Server" : "Trình duyệt đang TẮT";
+  let statusText = browser ? "Trình duyệt đang CHẠY ngầm" : "Trình duyệt đang TẮT";
   res.send(`
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Discord Web Viewer Control</title>
+      <title>Discord Viewer Control</title>
       <style>
         body { font-family: sans-serif; background: #1e1f22; color: #dbdee1; text-align: center; padding-top: 50px; }
         .box { background: #2b2d31; display: inline-block; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
@@ -38,25 +43,21 @@ app.get('/', async (req, res) => {
     </head>
     <body>
       <div class="box">
-        <h2>ĐIỀU KHIỂN DISCORD WEB VIEWER</h2>
+        <h2>ĐIỀU KHIỂN DISCORD VIEWER</h2>
         <p>Trạng thái: <span class="status">${statusText}</span></p>
-        <p>Server đang giữ tài khoản Token đăng nhập sẵn.</p>
         <br>
-        <button class="btn-open" onclick="window.location.href='/launch'">1. KHỞI CHẠY & ĐĂNG NHẬP SẴN</button>
+        <button class="btn-open" onclick="window.location.href='/launch'">1. KHỞI CHẠY TRÌNH DUYỆT</button>
         <button class="btn-close" onclick="window.location.href='/stop'">2. ĐÓNG TRÌNH DUYỆT (GIỮ MẮT XEM)</button>
-        <br><br>
-        <a href="https://discord.com/channels/${GUILD_ID}/${CHANNEL_ID}" target="_blank" style="color: #00a8fc;">Mở trực tiếp link Kênh Discord</a>
       </div>
     </body>
     </html>
   `);
 });
 
-// Khởi chạy trình duyệt, nạp sẵn Token và trỏ thẳng vào Server/Kênh Voice
 app.get('/launch', async (req, res) => {
   if (!browser) {
     try {
-      log('Đang khởi chạy Chromium trên Railway...');
+      log('Đang khởi chạy Chromium...');
       browser = await puppeteer.launch({
         headless: "new",
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
@@ -73,10 +74,9 @@ app.get('/launch', async (req, res) => {
       page = await browser.newPage();
       await page.setViewport({ width: 1280, height: 720 });
 
-      log('Đang nạp Token vào phiên làm việc...');
+      log('Đang đăng nhập bằng Token bảo mật...');
       await page.goto('https://discord.com/login', { waitUntil: 'domcontentloaded' });
 
-      // Inject Token tự động đăng nhập
       await page.evaluate((token) => {
         setInterval(() => {
           document.body.appendChild(document.createElement('iframe')).contentWindow.localStorage.token = `"${token}"`;
@@ -86,11 +86,10 @@ app.get('/launch', async (req, res) => {
 
       await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 });
       
-      // Chuyển thẳng đến Kênh Voice của bạn
-      log('Đang mở Kênh Voice...');
+      log('Đang chuyển hướng tới Kênh Voice...');
       await page.goto(`https://discord.com/channels/${GUILD_ID}/${CHANNEL_ID}`, { waitUntil: 'networkidle2' });
 
-      log('>>> ĐÃ KHỞI CHẠY VÀ ĐĂNG NHẬP THÀNH CÔNG TRÊN SERVER <<<');
+      log('>>> KHỞI CHẠY THÀNH CÔNG <<<');
     } catch (err) {
       log(`Lỗi: ${err.message}`);
       if (browser) await browser.close();
@@ -101,13 +100,12 @@ app.get('/launch', async (req, res) => {
 
   res.send(`
     <script>
-      alert('Đã khởi chạy phiên làm việc thành công! Bot đã vào sẵn kênh.');
+      alert('Đã khởi chạy phiên làm việc thành công!');
       window.location.href = '/';
     </script>
   `);
 });
 
-// Đóng trình duyệt nhưng container ngầm vẫn giữ trạng thái
 app.get('/stop', async (req, res) => {
   if (browser) {
     await browser.close();
